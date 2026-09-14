@@ -1,5 +1,7 @@
 # ESG / BRSR Report Intelligence Platform
 
+Live Demo: https://ntini97-esg-brsr-intelligence.hf.space/
+
 ## Project layout
 
 ```
@@ -26,12 +28,17 @@ src/summarization/summarizer.py           Structured, cited ESG summary generati
 
 ## Running locally
 
+### CLI
+
 ```bash
 cp .env.example .env   # then fill in GROQ_API_KEY
 pip install -r requirements.txt
 python -m agent.compliance_sentinel --file report.pdf --company "ABCD Corp" --year FY2024-25
 ```
-or
+
+### GUI
+
+Launch the Streamlit web interface:
 
 ```bash
 streamlit run app.py

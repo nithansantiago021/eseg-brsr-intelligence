@@ -1,0 +1,140 @@
+<svg viewBox="0 0 1200 780" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b8ab8"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="780" fill="#0f1117"/>
+
+  <text x="600" y="36" text-anchor="middle" fill="#e8eaf0" font-size="22" font-weight="700">ESG/BRSR Compliance Sentinel — Agent Architecture</text>
+  
+  <!-- Trigger -->
+  <rect x="40" y="100" width="220" height="110" rx="10" fill="#131c2e" stroke="#1e2d45"/>
+  <text x="150" y="128" text-anchor="middle" fill="#c8d8ff" font-size="14" font-weight="600">Trigger</text>
+  <text x="150" y="152" text-anchor="middle" fill="#8a9ab8" font-size="11">CLI: python -m</text>
+  <text x="150" y="168" text-anchor="middle" fill="#8a9ab8" font-size="11">agent.compliance_sentinel</text>
+  <text x="150" y="190" text-anchor="middle" fill="#8a9ab8" font-size="11">or "Run Compliance Sentinel" button</text>
+  <text x="150" y="204" text-anchor="middle" fill="#8a9ab8" font-size="11">in the Dashboard tab</text>
+
+  <line x1="260" y1="155" x2="330" y2="155" stroke="#6b8ab8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Agent core loop -->
+  <rect x="330" y="90" width="300" height="130" rx="10" fill="#101c2e" stroke="#1e3a5a" stroke-width="2"/>
+  <text x="480" y="118" text-anchor="middle" fill="#7fa8e8" font-size="15" font-weight="700">Strands Agent</text>
+  <text x="480" y="136" text-anchor="middle" fill="#9aadcc" font-size="11">Compliance Sentinel — reasoning loop</text>
+  <text x="480" y="158" text-anchor="middle" fill="#6b8ab8" font-size="11">index → check → snapshot → compare</text>
+  <text x="480" y="174" text-anchor="middle" fill="#6b8ab8" font-size="11">→ verify (rag_ask) → flag → memo → notify?</text>
+  <text x="480" y="198" text-anchor="middle" fill="#5cc89a" font-size="11">System prompt: escalate only on</text>
+  <text x="480" y="212" text-anchor="middle" fill="#5cc89a" font-size="11">review_suggested / action_required</text>
+
+  <line x1="630" y1="155" x2="700" y2="155" stroke="#6b8ab8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Model -->
+  <rect x="700" y="100" width="220" height="110" rx="10" fill="#1a1508" stroke="#4a3a10"/>
+  <text x="810" y="128" text-anchor="middle" fill="#d4a843" font-size="14" font-weight="600">Model Provider</text>
+  <text x="810" y="152" text-anchor="middle" fill="#c8ab6b" font-size="11">Groq</text>
+  <text x="810" y="168" text-anchor="middle" fill="#c8ab6b" font-size="11">(openai/gpt-oss-120b)</text>
+  <text x="810" y="188" text-anchor="middle" fill="#7a6a40" font-size="10">Also available: Amazon Bedrock</text>
+ 
+  <line x1="810" y1="210" x2="810" y2="240" stroke="#6b8ab8" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <line x1="480" y1="220" x2="480" y2="240" stroke="#6b8ab8" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Tools row -->
+  <rect x="40" y="250" width="1120" height="200" rx="10" fill="#0d1220" stroke="#1a2840"/>
+  <text x="60" y="275" fill="#7fa8e8" font-size="13" font-weight="700">Tools (Python functions, @tool-decorated — deterministic, no invented numbers)</text>
+
+  <!-- tool boxes -->
+  <g font-size="10.5" fill="#9aadcc">
+    <rect x="60" y="290" width="130" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="125" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">index_filing</text>
+    <text x="125" y="326" text-anchor="middle">extract, chunk,</text>
+    <text x="125" y="340" text-anchor="middle">embed, store</text>
+
+    <rect x="205" y="290" width="150" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="280" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">check_disclosure</text>
+    <text x="280" y="323" text-anchor="middle" fill="#c8d8ff" font-weight="600">_completeness</text>
+    <text x="280" y="340" text-anchor="middle">missing BRSR principles</text>
+
+    <rect x="370" y="290" width="150" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="445" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">get_current_metric</text>
+    <text x="445" y="323" text-anchor="middle" fill="#c8d8ff" font-weight="600">_snapshot</text>
+    <text x="445" y="340" text-anchor="middle">table → ESGMetric records</text>
+
+    <rect x="535" y="290" width="150" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="610" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">compare_year</text>
+    <text x="610" y="323" text-anchor="middle" fill="#c8d8ff" font-weight="600">_over_year</text>
+    <text x="610" y="340" text-anchor="middle">deltas vs. prior filing</text>
+
+    <rect x="700" y="290" width="120" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="760" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">rag_ask</text>
+    <text x="760" y="326" text-anchor="middle">verify before</text>
+    <text x="760" y="340" text-anchor="middle">flagging (RAGAS)</text>
+
+    <rect x="835" y="290" width="120" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="895" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">flag_finding</text>
+    <text x="895" y="326" text-anchor="middle">severity-tagged</text>
+    <text x="895" y="340" text-anchor="middle">issue record</text>
+
+    <rect x="970" y="290" width="80" height="66" rx="6" fill="#131c2e" stroke="#233060"/>
+    <text x="1010" y="310" text-anchor="middle" fill="#c8d8ff" font-weight="600">save_review</text>
+    <text x="1010" y="323" text-anchor="middle" fill="#c8d8ff" font-weight="600">_memo</text>
+    <text x="1010" y="340" text-anchor="middle">markdown</text>
+
+    <rect x="1065" y="290" width="75" height="66" rx="6" fill="#1f1418" stroke="#3d1f28"/>
+    <text x="1102" y="310" text-anchor="middle" fill="#f49090" font-weight="600">notify</text>
+    <text x="1102" y="323" text-anchor="middle" fill="#f49090" font-weight="600">_human</text>
+    <text x="1102" y="340" text-anchor="middle" fill="#c98a8a">only if flagged</text>
+  </g>
+
+  <!-- underlying platform -->
+  <text x="60" y="380" fill="#7fa8e8" font-size="12" font-weight="700">Built on the existing ESG Intelligence Platform:</text>
+  <g font-size="10.5" fill="#8a9ab8">
+    <rect x="60" y="392" width="185" height="44" rx="6" fill="#0d1a2e" stroke="#1b2f4e"/>
+    <text x="152" y="410" text-anchor="middle">pdfplumber extractor</text>
+    <text x="152" y="424" text-anchor="middle">markdown-aware chunker</text>
+
+    <rect x="255" y="392" width="185" height="44" rx="6" fill="#0d1a2e" stroke="#1b2f4e"/>
+    <text x="347" y="410" text-anchor="middle">Embedder + ChromaDB</text>
+    <text x="347" y="424" text-anchor="middle">(isolated per run)</text>
+
+    <rect x="450" y="392" width="185" height="44" rx="6" fill="#0d1a2e" stroke="#1b2f4e"/>
+    <text x="542" y="410" text-anchor="middle">Retriever + RAGAS Guard</text>
+    <text x="542" y="424" text-anchor="middle">faithfulness / relevancy</text>
+
+    <rect x="645" y="392" width="185" height="44" rx="6" fill="#0d1a2e" stroke="#1b2f4e"/>
+    <text x="737" y="410" text-anchor="middle">Metric Extractor</text>
+    <text x="737" y="424" text-anchor="middle">+ Normalizer (unit-safe)</text>
+
+    <rect x="840" y="392" width="300" height="44" rx="6" fill="#0d1a2e" stroke="#1b2f4e"/>
+    <text x="990" y="410" text-anchor="middle">FilingHistoryStore — JSON</text>
+    <text x="990" y="424" text-anchor="middle">snapshots · findings · memos · notifications (cross-run memory)</text>
+  </g>
+
+  <line x1="600" y1="450" x2="600" y2="490" stroke="#6b8ab8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Output -->
+  <rect x="60" y="500" width="330" height="130" rx="10" fill="#0d1f18" stroke="#1a4030"/>
+  <text x="225" y="528" text-anchor="middle" fill="#5cc89a" font-size="14" font-weight="700">Silent outcome (common case)</text>
+  <text x="225" y="552" text-anchor="middle" fill="#8fcbb0" font-size="11">Review memo saved, status = auto_closed</text>
+  <text x="225" y="570" text-anchor="middle" fill="#8fcbb0" font-size="11">Filing snapshot recorded for next year's</text>
+  <text x="225" y="586" text-anchor="middle" fill="#8fcbb0" font-size="11">comparison</text>
+  <text x="225" y="608" text-anchor="middle" fill="#5a8a72" font-size="10">No human interrupted</text>
+
+  <rect x="430" y="500" width="330" height="130" rx="10" fill="#1f1a10" stroke="#4a3a10"/>
+  <text x="595" y="528" text-anchor="middle" fill="#d4a843" font-size="14" font-weight="700">Escalated outcome</text>
+  <text x="595" y="552" text-anchor="middle" fill="#e0c68a" font-size="11">status = pending_human_review</text>
+  <text x="595" y="570" text-anchor="middle" fill="#e0c68a" font-size="11">notify_human called with a 2-sentence</text>
+  <text x="595" y="586" text-anchor="middle" fill="#e0c68a" font-size="11">reason + severity</text>
+  <text x="595" y="608" text-anchor="middle" fill="#a58a4a" font-size="10">Human reviews memo + citations, decides</text>
+
+  <rect x="800" y="500" width="340" height="130" rx="10" fill="#101c2e" stroke="#1e3a5a"/>
+  <text x="970" y="528" text-anchor="middle" fill="#7fa8e8" font-size="14" font-weight="700">Every claim is traceable</text>
+  <text x="970" y="552" text-anchor="middle" fill="#9aadcc" font-size="11">Every metric → chunk_id + page</text>
+  <text x="970" y="570" text-anchor="middle" fill="#9aadcc" font-size="11">Every answer → [SOURCE N] citation</text>
+  <text x="970" y="586" text-anchor="middle" fill="#9aadcc" font-size="11">Every memo → the tool calls that built it</text>
+  <text x="970" y="608" text-anchor="middle" fill="#6b7a96" font-size="10">No number reaches a human unverified</text>
+
+  <text x="600" y="700" text-anchor="middle" fill="#4a5568" font-size="11">User (input) → Strands Agent core loop → Tools → Groq / AWS (Bedrock) + platform services → Output (memo, silent-by-default)</text>
+  <text x="600" y="720" text-anchor="middle" fill="#3d4455" font-size="10">Agents for Humans Hackathon — Professional Agents track</text>
+</svg>

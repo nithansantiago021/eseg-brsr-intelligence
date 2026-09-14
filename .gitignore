@@ -1,0 +1,30 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# Streamlit & Local App Caches
+.streamlit/secrets.toml
+.cache/
+
+# Local Vector Databases & Storage (Do not upload local binary DB files)
+chroma_db/
+faiss_index/
+*.sqlite3
+*.db
+
+# OS / Environment Files
+.env
+.DS_Store
+
+.env
+data/
+sample/
+PROJECT_GUIDE.md
+SUBMISSION.md
+.vscode/
+Submission.md
+*.ipynb

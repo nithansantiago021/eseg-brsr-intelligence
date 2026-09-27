@@ -4,7 +4,8 @@ tools.py — The Compliance Sentinel agent's tools.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -24,9 +25,7 @@ from agent.history_store import FilingHistoryStore
 
 @dataclass
 class AgentRuntime:
-    """Everything the tool functions need for one compliance-check run.
-    One AgentRuntime = one filing under review; the vector store is scoped
-    to just that filing, kept in memory only for the duration of the run."""
+    """Everything the tool functions need for one compliance-check run."""
     embedder: Embedder
     vector_store: VectorStore
     retriever: Retriever
@@ -63,7 +62,7 @@ def _require_runtime() -> AgentRuntime:
 def index_filing(file_path: str, dual_page_layout: bool = False) -> dict:
     rt = _require_runtime()
     chunks = index_file(
-        Path(file_path), rt.embedder, rt.vector_store,
+        Path(file_path), rt.embedder, rt.vector_store, retriever=rt.retriever,
         company=rt.company, reporting_year=rt.reporting_year, document_type=rt.document_type,
         dual_page_layout=dual_page_layout,
     )
@@ -78,52 +77,119 @@ def index_filing(file_path: str, dual_page_layout: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Disclosure completeness
+# Disclosure Completeness Verification
 # ---------------------------------------------------------------------------
+
+_PRINCIPLE_SEARCH_TERMS = {
+    "P1": ["PRINCIPLE 1", "Ethics", "TCoC", "Whistleblower", "Anti Bribery", "PoSH"],
+    "P2": ["PRINCIPLE 2", "Sustainable", "Safe Goods", "LCA", "Resource Efficiency"],
+    "P3": ["PRINCIPLE 3", "Employee Well-being", "Safety", "Hazard", "Training"],
+    "P4": ["PRINCIPLE 4", "Stakeholder Engagement", "Consultation", "Community"],
+    "P5": ["PRINCIPLE 5", "Human Rights", "Minimum Wages", "Child Labour"],
+    "P6": ["PRINCIPLE 6", "Environment", "Emissions", "Scope 1", "Scope 2", "Water"],
+    "P7": ["PRINCIPLE 7", "Policy Advocacy", "Trade Association"],
+    "P8": ["PRINCIPLE 8", "Inclusive Growth", "CSR", "Community Development"],
+    "P9": ["PRINCIPLE 9", "Customer Value", "Consumer Feedback", "Data Privacy"],
+}
 
 @tool
 def check_disclosure_completeness() -> dict:
-    """Check which of the 9 BRSR principles (P1-P9) have zero detected
-    content in the indexed filing — a candidate signal for a missing or
-    very thin disclosure. Call this after index_filing.
+    """Check which of the 9 BRSR principles (P1-P9) have content in the indexed filing.
 
     Returns:
-        A dict with 'principles_present' and 'principles_missing' (using
-        the standard P1..P9 codes), plus their human-readable names.
+        A dict with 'principles_present' and 'principles_missing' (P1..P9),
+        verified using both metadata tags and hybrid text search.
     """
     rt = _require_runtime()
-    present = set(rt.vector_store.list_principles())
+    
+    # 1. Start with metadata tags directly saved in ChromaDB
+    tagged_present = set(rt.vector_store.list_principles())
     all_codes = set(cfg.esg.principles.keys())
-    missing = sorted(all_codes - present)
+    
+    present = set(tagged_present)
+    missing = []
+
+    # 2. For principles not explicitly tagged in metadata, perform hybrid search verification
+    for p_code in sorted(all_codes - tagged_present):
+        keywords = _PRINCIPLE_SEARCH_TERMS.get(p_code, [f"PRINCIPLE {p_code[1:]}"])
+        query = " ".join(keywords)
+        
+        hits = rt.retriever.retrieve(query=query, top_k=5)
+        found = False
+        
+        for hit in hits:
+            hit_text_upper = hit.text.upper()
+            p_num = p_code[1:]
+            
+            # Match "PRINCIPLE 1", "PRINCIPLE - 1", "PRINCIPLE:1", or core keywords
+            if f"PRINCIPLE {p_num}" in hit_text_upper or f"PRINCIPLE-{p_num}" in hit_text_upper or f"PRINCIPLE:{p_num}" in hit_text_upper:
+                found = True
+                break
+            
+            # Secondary check for key descriptor terms
+            matched_terms = sum(1 for kw in keywords[1:] if kw.upper() in hit_text_upper)
+            if matched_terms >= 2:
+                found = True
+                break
+
+        if found:
+            present.add(p_code)
+        else:
+            missing.append(p_code)
+
     return {
         "principles_present": [f"{p} — {cfg.esg.principles[p]}" for p in sorted(present)],
-        "principles_missing": [f"{p} — {cfg.esg.principles[p]}" for p in missing],
+        "principles_missing": [f"{p} — {cfg.esg.principles[p]}" for p in sorted(missing)],
     }
 
 
 # ---------------------------------------------------------------------------
-# Metric snapshot + year-over-year comparison
+# Metric Snapshot + Year-over-Year Comparison
 # ---------------------------------------------------------------------------
 
 @tool
-def get_current_metric_snapshot() -> list[dict]:
+def get_current_metric_snapshot() -> dict:
+    """Extracts structured ESG metrics, saves full snapshot to disk, and returns a summary."""
     rt = _require_runtime()
+    
+    # Clear stale findings from previous runs
+    rt.history.clear_findings(rt.company, rt.reporting_year)
+    
     registry = build_metric_registry(rt.vector_store)
+    
+    # Save full snapshot to history store
     rt.history.save_filing_snapshot(
-        company=rt.company, reporting_year=rt.reporting_year, document_type=rt.document_type,
-        filename=rt.filename, metrics=[m.to_dict() for m in registry],
+        company=rt.company, 
+        reporting_year=rt.reporting_year, 
+        document_type=rt.document_type,
+        filename=rt.filename, 
+        metrics=[m.to_dict() for m in registry],
         principles_present=rt.vector_store.list_principles(),
     )
-    return [m.to_dict() for m in registry]
+    
+    # Return sample payload (first 15 metrics) to keep LLM context within TPM limits
+    sample = [m.to_dict() for m in registry[:15]]
+    return {
+        "total_metrics_extracted": len(registry),
+        "snapshot_saved": True,
+        "sample_metrics": sample,
+        "note": f"Saved all {len(registry)} metrics to snapshot. Returning top 15 in context."
+    }
 
 
 @tool
 def compare_year_over_year() -> dict:
+    """Compares current filing metrics against prior filing on record.
+    Returns the top material changes sorted by magnitude to keep context lightweight."""
     rt = _require_runtime()
     prior = rt.history.get_prior_filing(rt.company, exclude_year=rt.reporting_year)
     if prior is None:
-        return {"prior_filing": None, "comparisons": [], "not_comparable": [],
-                "note": "No prior filing on record for this company — nothing to compare yet."}
+        return {
+            "prior_filing": None, 
+            "comparisons": [], 
+            "not_comparable": [],
+            "note": "No prior filing on record for this company — nothing to compare yet."
+        }
 
     current_registry = build_metric_registry(rt.vector_store)
     current_by_name: dict[str, list[ESGMetric]] = {}
@@ -146,22 +212,40 @@ def compare_year_over_year() -> dict:
         pct_change = None
         if prior_val not in (None, 0) and cur_val is not None:
             pct_change = round(((cur_val - prior_val) / abs(prior_val)) * 100, 1)
+        
         comparisons.append({
-            "metric": name, "unit": cur.unit,
-            "prior_year": prior["reporting_year"], "prior_value": prior_val,
-            "current_year": rt.reporting_year, "current_value": cur_val,
-            "pct_change": pct_change, "citation": cur.citation_label,
+            "metric": name, 
+            "unit": cur.unit,
+            "prior_year": prior["reporting_year"], 
+            "prior_value": prior_val,
+            "current_year": rt.reporting_year, 
+            "current_value": cur_val,
+            "pct_change": pct_change, 
+            "abs_pct_change": abs(pct_change) if pct_change is not None else 0,
+            "citation": cur.citation_label,
         })
+
+    # Sort by absolute percentage change magnitude (largest swings first)
+    comparisons.sort(key=lambda x: x["abs_pct_change"], reverse=True)
+    
+    # Strip temporary sorting field and limit payload size
+    top_swings = []
+    for c in comparisons[:15]:
+        c_copy = dict(c)
+        c_copy.pop("abs_pct_change", None)
+        top_swings.append(c_copy)
 
     return {
         "prior_filing": {"reporting_year": prior["reporting_year"], "filename": prior["filename"]},
-        "comparisons": comparisons,
-        "not_comparable": not_comparable,
+        "total_compared_metrics": len(comparisons),
+        "top_material_swings": top_swings,
+        "not_comparable_count": len(not_comparable),
+        "note": f"Compared {len(comparisons)} metrics. Showing top 15 material swings to fit token budget."
     }
 
 
 # ---------------------------------------------------------------------------
-# Grounded Q&A (for verifying anything ambiguous before flagging it)
+# Grounded Q&A
 # ---------------------------------------------------------------------------
 
 @tool
@@ -179,8 +263,7 @@ def rag_ask(question: str) -> dict:
             "note": (
                 f"rag_ask budget ({rt.rag_ask_budget} calls) is used up for this run. "
                 "Do not call rag_ask again — write the memo using the metric values "
-                "already extracted, and note in the memo which items could not be "
-                "individually verified due to the verification budget."
+                "already extracted."
             ),
         }
 
@@ -198,7 +281,7 @@ def rag_ask(question: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Findings, memo, and human escalation
+# Findings, Memo, and Escalate
 # ---------------------------------------------------------------------------
 
 @tool

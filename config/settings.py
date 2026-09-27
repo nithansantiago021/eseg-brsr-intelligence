@@ -37,8 +37,8 @@ class VectorStoreConfig:
 @dataclass
 class ChunkingConfig:
     # Prose chunking
-    text_chunk_size: int = 1024
-    text_chunk_overlap: int = 128
+    text_chunk_size: int = 700
+    text_chunk_overlap: int = 100
     separators: list = field(default_factory=lambda: ["\n\n", "\n", ". ", " ", ""])
 
     # Table chunking — larger, because splitting rows apart destroys meaning

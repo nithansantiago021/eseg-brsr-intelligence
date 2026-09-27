@@ -14,6 +14,9 @@ Programmatic (e.g. from app.py's Dashboard "Run Compliance Sentinel" button):
 """
 
 from __future__ import annotations
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*generator didn't stop after athrow.*")
+warnings.filterwarnings("ignore", message=".*async_generator.*")
 
 import argparse
 import sys

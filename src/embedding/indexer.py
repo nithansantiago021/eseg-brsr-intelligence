@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from src.preprocessing.preprocessor import DocumentChunk, load_document, chunk_document
 from src.embedding.embedder import Embedder, VectorStore
+from src.retrieval.retriever import Retriever
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -19,6 +20,7 @@ def index_file(
     file_path: Path,
     embedder: Embedder,
     vector_store: VectorStore,
+    retriever: Optional[Retriever] = None,
     company: str = "",
     reporting_year: str = "",
     document_type: str = "",
@@ -33,7 +35,7 @@ def index_file(
     _progress(f"Loading: {file_path.name}")
     doc = load_document(file_path, dual_page_layout=dual_page_layout)
 
-    _progress(f"Chunking (markdown/table-aware): {file_path.name}")
+    _progress(f"Chunking (layout-aware): {file_path.name}")
     chunks = chunk_document(doc)
 
     if not chunks:
@@ -53,6 +55,20 @@ def index_file(
 
     _progress("Storing in vector database...")
     vector_store.upsert_chunks(chunks, embeddings)
+    
+    # Update retriever's BM25 lexical index if retriever instance is provided
+    if retriever is not None:
+        _progress("Updating BM25 sparse index...")
+        chunk_dicts = [
+            {
+                "chunk_id": c.chunk_id,
+                "text": c.text,
+                "metadata": c.to_chroma_metadata(),
+            }
+            for c in chunks
+        ]
+        retriever.build_bm25_index(chunk_dicts)
+
     n_tables = sum(1 for c in chunks if c.content_type == "table")
     _progress(f"Indexed '{file_path.name}': {len(chunks)} chunks ({n_tables} table chunks)")
 
@@ -63,6 +79,7 @@ def index_directory(
     directory: Path,
     embedder: Embedder,
     vector_store: VectorStore,
+    retriever: Optional[Retriever] = None,
     company: str = "",
     reporting_year: str = "",
     document_type: str = "",
@@ -78,8 +95,16 @@ def index_directory(
     total_chunks = 0
     for file_path in files:
         try:
-            chunks = index_file(file_path, embedder, vector_store, company, reporting_year,
-                                 document_type, progress_callback)
+            chunks = index_file(
+                file_path=file_path,
+                embedder=embedder,
+                vector_store=vector_store,
+                retriever=retriever,
+                company=company,
+                reporting_year=reporting_year,
+                document_type=document_type,
+                progress_callback=progress_callback,
+            )
             total_chunks += len(chunks)
         except Exception as exc:
             log.error("Failed to index '%s': %s", file_path.name, exc, exc_info=True)

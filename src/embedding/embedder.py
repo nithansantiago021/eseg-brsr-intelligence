@@ -23,12 +23,18 @@ class Embedder:
         log.info("Loading embedding model: %s", cfg.embedding.model_name)
         t0 = time.perf_counter()
         self._model = SentenceTransformer(cfg.embedding.model_name, device=cfg.embedding.device)
+        
+        # Explicitly set max_seq_length to prevent sequence length warnings for large chunks/tables
+        self._model.max_seq_length = 512
+        
         log.info("Model loaded in %.2fs", time.perf_counter() - t0)
 
     def encode_documents(self, texts: list[str]) -> list[list[float]]:
         vecs = self._model.encode(
-            texts, batch_size=cfg.embedding.batch_size,
-            normalize_embeddings=cfg.embedding.normalize, show_progress_bar=False,
+            texts,
+            batch_size=cfg.embedding.batch_size,
+            normalize_embeddings=cfg.embedding.normalize,
+            show_progress_bar=False,
         )
         return vecs.tolist()
 

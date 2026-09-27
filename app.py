@@ -1,5 +1,5 @@
 """
-app.py — ESG / BRSR Report Intelligence Platform (Hugging Face Spaces edition).
+app.py — ESG / BRSR Report Intelligence Platform (Hugging Face Spaces & Local edition).
 """
 
 from __future__ import annotations
@@ -28,8 +28,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── CSS (kept from the Legal Intelligence build — same dark theme, only the
-#    header icon/copy differ) ────────────────────────────────────────────────
+# ── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 html, body, [data-testid="stAppViewContainer"] {
@@ -122,6 +121,7 @@ def _init_session() -> None:
         "session_id":      str(uuid.uuid4())[:8],
         "chat_history":    [],
         "indexed_docs":    [],
+        "chunks":          [],          # FIX 1: Persist chunks directly in session state
         "filename_filter": None,
         "scope_company":   None,
         "scope_year":      None,
@@ -179,8 +179,8 @@ def _render_sidebar() -> None:
 
         st.markdown("### Navigate")
         st.session_state.active_section = st.radio(
-            "Section", ["Agent", "Chatbot", "How to Use"],
-            index=["Agent", "Chatbot", "How to Use"].index(st.session_state.active_section),
+            "Section", ["Agent", "Chatbot", "Dashboard", "How to Use"],
+            index=["Agent", "Chatbot", "Dashboard", "How to Use"].index(st.session_state.active_section),
             label_visibility="collapsed",
         )
         st.markdown("---")
@@ -207,9 +207,7 @@ def _render_sidebar() -> None:
                 "PDF has two pages merged side-by-side (landscape spread)",
                 value=False,
                 help="Enable this if each page image in the PDF actually shows two "
-                     "logical report pages placed next to each other. Left/right "
-                     "content is then kept separate so labels and values don't get "
-                     "mixed across the two pages.",
+                     "logical report pages placed next to each other.",
             )
             uploaded_files = st.file_uploader(
                 "Files", type=["pdf"],
@@ -224,8 +222,9 @@ def _render_sidebar() -> None:
                 _handle_uploads(uploaded_files, up_company.strip(), up_year.strip(), up_doctype, up_dual_page)
 
         indexed = st.session_state.get("indexed_docs", [])
+        total_chunks = len(st.session_state.get("chunks", []))
         if indexed:
-            st.markdown("**Indexed documents:**")
+            st.markdown(f"**Indexed documents ({total_chunks} total chunks):**")
             for d in indexed:
                 st.markdown(
                     f'<div class="doc-chip">📎 {d["filename"]} · {d["company"]}'
@@ -266,6 +265,7 @@ def _handle_uploads(uploaded_files, company: str, reporting_year: str, doc_type:
 
     embedder = _load_embedder()
     vector_store = st.session_state.vector_store
+    retriever = st.session_state.retriever  # FIX 2: Retrieve active retriever instance
     tmp_dir = Path(st.session_state.session_tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -286,8 +286,24 @@ def _handle_uploads(uploaded_files, company: str, reporting_year: str, doc_type:
             def _cb(msg: str, _slot=slot):
                 _slot.markdown(f'<div class="info-box">{msg}</div>', unsafe_allow_html=True)
 
-            chunks = index_file(tmp_path, embedder, vector_store, company, reporting_year, doc_type,
-                                 dual_page_layout=dual_page_layout, progress_callback=_cb)
+            # FIX 3: Pass retriever instance so BM25 index builds properly
+            chunks = index_file(
+                file_path=tmp_path,
+                embedder=embedder,
+                vector_store=vector_store,
+                retriever=retriever,
+                company=company,
+                reporting_year=reporting_year,
+                document_type=doc_type,
+                dual_page_layout=dual_page_layout,
+                progress_callback=_cb,
+            )
+
+            # FIX 4: Store chunk instances into session state
+            if "chunks" not in st.session_state:
+                st.session_state.chunks = []
+            st.session_state.chunks.extend(chunks)
+
             st.session_state.indexed_docs.append({
                 "filename": uf.name, "company": company,
                 "reporting_year": reporting_year, "document_type": doc_type,
@@ -308,6 +324,7 @@ def _handle_uploads(uploaded_files, company: str, reporting_year: str, doc_type:
     time.sleep(0.6)
     slot.empty()
     _rebuild_metric_registry()
+    st.rerun()  # FIX 5: Force Streamlit UI refresh to unlock buttons immediately
 
 
 # ── Citation formatter ────────────────────────────────────────────────────────
@@ -323,12 +340,15 @@ def _render_chatbot() -> None:
     no_key = not GROQ_API_KEY
 
     if no_docs or no_key:
-        cols = st.columns(2) if (no_docs and no_key) else [st.container()]
         messages = []
         if no_docs:
             messages.append("📄 <strong>Step 1:</strong> Upload an ESG/BRSR report in the sidebar.")
+        if no_key:
+            messages.append("🔑 <strong>Step 2:</strong> Configure your GROQ_API_KEY in environment or secrets.")
+        
         if len(messages) == 2:
-            for col, msg in zip(st.columns(2), messages):
+            cols = st.columns(2)
+            for col, msg in zip(cols, messages):
                 with col:
                     st.markdown(f'<div class="warn-box">{msg}</div>', unsafe_allow_html=True)
         else:
@@ -439,24 +459,16 @@ def _render_chatbot() -> None:
 
 # ── Agent section (Compliance Sentinel) ──────────────────────────────────────
 def _render_agent() -> None:
-    """Compliance Sentinel agent — see agent/compliance_sentinel.py.
-    This is a thin UI entry point only: indexing, comparison, findings, and
-    the memo are all produced by the agent's own Strands tool calls against
-    a fresh, isolated runtime; nothing here duplicates that logic. The CLI
-    entry point (`python -m agent.compliance_sentinel`) is the primary way
-    this is meant to be run — this button exists so the same capability is
-    reachable without leaving the app."""
     st.markdown("#### 🛡️ Compliance Sentinel")
     st.markdown(
-        '<div class="info-box">An autonomous agent (Strands Agents SDK) that '
-        'reviews a filing the way a junior compliance analyst would: indexes it, checks for missing BRSR '
+        '<div class="info-box">An autonomous agent that reviews a filing: indexes it, checks for missing BRSR '
         'disclosures, compares against this company\'s last reviewed filing, verifies anything ambiguous '
         'before concluding, and writes a cited memo. <strong>It only notifies a human when something '
         'actually needs attention</strong> — a clean filing is reviewed and filed silently.</div>',
         unsafe_allow_html=True,
     )
 
-    provider = os.getenv("AGENT_MODEL_PROVIDER", "bedrock")
+    provider = os.getenv("AGENT_MODEL_PROVIDER", "groq")
     provider_ok = provider != "groq" or bool(GROQ_API_KEY)
     provider_color = "#5cc89a" if provider_ok else "#f49090"
     st.markdown(
@@ -464,21 +476,6 @@ def _render_agent() -> None:
         f'{"" if provider_ok else " (GROQ_API_KEY missing)"}</span>',
         unsafe_allow_html=True,
     )
-
-    try:
-        from agent.history_store import FilingHistoryStore
-        history = FilingHistoryStore()
-        prior_filings = history.list_filings()
-    except Exception:
-        prior_filings = []
-    
-
-    #-------- future implementation to show prior filings --------
-    # if prior_filings:
-    #     with st.expander(f"{len(prior_filings)} filing(s) previously reviewed by this agent", expanded=False):
-    #         for f in prior_filings[:15]:
-    #             st.markdown(f"- **{f['company']}** · {f['reporting_year']} · {f['filename']} "
-    #                         f"({len(f['metrics'])} metrics on file)")
 
     indexed = st.session_state.get("indexed_docs", [])
     if not indexed:
@@ -489,6 +486,7 @@ def _render_agent() -> None:
     choice = st.selectbox("Filing to review", list(options.keys()), key="sentinel_doc")
     target = options[choice]
 
+    # In app.py inside _render_agent():
     if st.button("Run Compliance Sentinel", type="primary"):
         if not provider_ok:
             st.markdown('<div class="error-box">GROQ_API_KEY is required for AGENT_MODEL_PROVIDER=groq.</div>',
@@ -496,6 +494,13 @@ def _render_agent() -> None:
             return
         with st.spinner("Sentinel reviewing filing — indexing, comparing, verifying…"):
             try:
+                from streamlit.runtime.scriptrunner import add_script_run_ctx
+                import threading
+                
+                # Ensure the active thread holds Streamlit ScriptRunContext
+                current_thread = threading.current_thread()
+                add_script_run_ctx(current_thread)
+
                 from agent.compliance_sentinel import run_compliance_check
                 tmp_dir = Path(st.session_state.session_tmp_dir)
                 source_path = tmp_dir / target["filename"]
@@ -515,31 +520,158 @@ def _render_agent() -> None:
         memo = result.get("memo")
         findings = result.get("findings", [])
         if memo:
-            status_color = "#5cc89a" if memo["status"] == "auto_closed" else "#d4a843"
-            status_label = "✓ auto_closed — no human needed" if memo["status"] == "auto_closed" \
+            status_color = "#5cc89a" if memo.get("status") == "auto_closed" else "#d4a843"
+            status_label = "✓ auto_closed — no human needed" if memo.get("status") == "auto_closed" \
                 else "⚠ pending_human_review"
             st.markdown(
                 f'<div class="metric-pill" style="color:{status_color};">{status_label}</div>',
                 unsafe_allow_html=True,
             )
             with st.expander("Review memo", expanded=True):
-                st.markdown(Path("markdown_content", "No content found."))
+                memo_text = memo.get("text") or memo.get("content") or str(memo)
+                st.markdown(memo_text)
         if findings:
             st.markdown("**Findings:**")
             for f in findings:
-                st.markdown(f"- `[{f['severity']}]` **{f['topic']}** — {f['description']}")
+                st.markdown(f"- `[{f.get('severity', 'INFO')}]` **{f.get('topic', 'Notice')}** — {f.get('description', '')}")
         else:
             st.markdown('<div class="success-box">No findings — nothing flagged this review.</div>',
                         unsafe_allow_html=True)
 
+# ── Dashboard section ─────────────────────────────────────────────────────────
+def _render_dashboard() -> None:
+    st.markdown("#### 📊 ESG Metric Analytics & Visualizations")
+    
+    registry = st.session_state.get("metric_registry", [])
+    if not registry:
+        st.markdown(
+            '<div class="info-box">No structured metrics available. Upload an ESG/BRSR report '
+            'in the sidebar to extract quantitative disclosures and view charts.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown(
+        f'<div class="success-box">✓ Currently tracking <strong>{len(registry)}</strong> '
+        f'extracted ESG metrics across indexed filings.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 1. High-Level KPI Summary Cards
+    col1, col2, col3, col4 = st.columns(4)
+    vs = st.session_state.vector_store
+    companies = vs.list_companies()
+    years = vs.list_years()
+    principles = vs.list_principles()
+
+    with col1:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-value">{len(companies)}</div>'
+            f'<div class="kpi-label">Companies Tracked</div></div>',
+            unsafe_allow_html=True,
+        )
+    with col2:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-value">{len(years)}</div>'
+            f'<div class="kpi-label">Reporting Years</div></div>',
+            unsafe_allow_html=True,
+        )
+    with col3:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-value">{len(principles)} / 9</div>'
+            f'<div class="kpi-label">BRSR Principles Covered</div></div>',
+            unsafe_allow_html=True,
+        )
+    with col4:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-value">{len(registry)}</div>'
+            f'<div class="kpi-label">Total Quantitative Metrics</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # 2. Interactive Plotly Visualizations via chart_generator / dashboard
+    st.markdown("### 📈 Metric Comparison Charts")
+    
+    # Filter metrics by selected company scope if set
+    filtered_registry = registry
+    if st.session_state.get("scope_company"):
+        filtered_registry = [
+            m for m in filtered_registry 
+            if m.company.lower() == st.session_state.scope_company.lower()
+        ]
+
+    # Try rendering via src/visualization/dashboard.py or chart_generator.py
+    try:
+        from src.visualization.chart_generator import build_chart
+        
+        # Group metrics by canonical metric name
+        metric_groups: dict[str, list] = {}
+        for m in filtered_registry:
+            metric_groups.setdefault(m.normalized_metric_name, []).append(m)
+
+        # Filter metric names that have at least 2 comparable values
+        comparable_names = [
+            name for name, metrics in metric_groups.items() if len(metrics) >= 2
+        ]
+
+        if comparable_names:
+            selected_metric_name = st.selectbox(
+                "Select ESG Metric to Compare", comparable_names
+            )
+            selected_metrics = metric_groups[selected_metric_name]
+            
+            fig, citations, refusal = build_chart(selected_metrics)
+            if fig is not None:
+                st.plotly_chart(fig, use_container_width=True)
+                if citations:
+                    st.markdown(
+                        '<div class="metric-row">' +
+                        "".join(f'<span class="metric-pill">📎 {c}</span>' for c in citations) +
+                        '</div>', unsafe_allow_html=True,
+                    )
+            elif refusal:
+                st.markdown(f'<div class="warn-box">📊 {refusal}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<div class="info-box">Upload multiple filings or multi-year reports to unlock '
+                'automated year-over-year comparison charts.</div>',
+                unsafe_allow_html=True,
+            )
+    except ImportError:
+        st.markdown(
+            '<div class="warn-box">Chart generation module not found. Displaying metric data table below.</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # 3. Extracted Metrics Data Table
+    st.markdown("### 📋 Extracted ESG Metrics Registry")
+    table_data = [
+        {
+            "Company": m.company,
+            "Period": m.reporting_year,
+            "Principle": m.principle or "General",
+            "Metric Name": m.metric_name,
+            "Canonical Name": m.normalized_metric_name,
+            "Value": m.value,
+            "Raw Value": m.raw_value,
+            "Unit": m.unit,
+            "Page": m.page,
+        }
+        for m in filtered_registry
+    ]
+    st.dataframe(table_data, use_container_width=True)
+
 
 # ── How to Use section ───────────────────────────────────────────────────────
 def _render_how_to_use() -> None:
-
     st.markdown("#### 🚀 Quick Start")
     steps = [
         ("Upload a report", "In the sidebar, enter the <strong>Company</strong>, <strong>Reporting Year</strong>, and <strong>Document Type</strong>, then upload the PDF file. Tables are extracted and chunked separately from prose so structure is preserved."),
-        ("Run the Compliance Sentinel", "The <strong> Agent</strong> section runs an autonomous Strands agent that reviews the filing end to end — checks for missing disclosures, compares against this company's last reviewed filing, verifies anything ambiguous, and writes a cited memo. It only notifies you when something actually needs attention; a clean filing is filed silently."),
+        ("Run the Compliance Sentinel", "The <strong>Agent</strong> section runs an autonomous agent that reviews the filing end to end — checks for missing disclosures, compares against this company's last reviewed filing, verifies anything ambiguous, and writes a cited memo."),
         ("Ask questions", "Use the <strong>Chatbot</strong> section for citation-backed Q&A. Narrow scope by company/year/principle in the sidebar. Comparison-style questions (\"compare X vs Y\") auto-generate a chart from extracted metrics when enough data points exist."),
         ("Clear your session", "Click <strong>🗑️ Clear Session Data</strong> any time to wipe all embeddings, extracted metrics, and chat history from memory."),
     ]
@@ -566,14 +698,14 @@ def _render_how_to_use() -> None:
         '<div class="feature-card"><div class="feature-icon">🧪</div><div class="feature-title">RAGAS Quality Guard</div>'
         '<div class="feature-desc">Faithfulness, answer relevancy, and context relevancy gate every chat answer.</div></div>'
         '<div class="feature-card"><div class="feature-icon">🛡️</div><div class="feature-title">Compliance Sentinel Agent</div>'
-        '<div class="feature-desc">An autonomous Strands agent reviews filings, compares year-over-year, and interrupts a human only when something needs attention.</div></div>'
+        '<div class="feature-desc">An autonomous agent reviews filings, compares year-over-year, and interrupts a human only when something needs attention.</div></div>'
         '</div>', unsafe_allow_html=True,
     )
 
     st.markdown("#### 🔒 Privacy Guarantees")
     st.markdown(
         '<table class="privacy-table"><thead><tr><th>Data</th><th>Storage</th><th>Deleted when</th></tr></thead><tbody>'
-        '<tr><td>Uploaded documents</td><td>Your private session temp folder</td><td><span class="tick">✓</span> Session ends or Clear button (kept during the session so features like the Compliance Sentinel can re-read the original file)</td></tr>'
+        '<tr><td>Uploaded documents</td><td>Your private session temp folder</td><td><span class="tick">✓</span> Session ends or Clear button</td></tr>'
         '<tr><td>Embeddings / vector store</td><td>In-memory only (ChromaDB EphemeralClient)</td><td><span class="tick">✓</span> Session ends or Clear button</td></tr>'
         '<tr><td>Extracted ESG metrics</td><td>Session RAM only</td><td><span class="tick">✓</span> Session ends or Clear button</td></tr>'
         '<tr><td>Chat history</td><td>Browser session state</td><td><span class="tick">✓</span> Session ends or Clear button</td></tr>'
@@ -601,6 +733,8 @@ def main() -> None:
         _render_agent()
     elif section == "Chatbot":
         _render_chatbot()
+    elif section == "Dashboard":
+        _render_dashboard()
     else:
         _render_how_to_use()
 

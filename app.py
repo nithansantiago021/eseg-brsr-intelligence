@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sys
 import os
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -19,6 +20,10 @@ from pathlib import Path
 import streamlit as st
 
 from config.settings import cfg, GROQ_API_KEY
+
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*generator didn't stop after athrow.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*missing ScriptRunContext.*")
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -213,7 +218,7 @@ def _render_sidebar() -> None:
                 "Files", type=["pdf"],
                 accept_multiple_files=True, label_visibility="collapsed",
             )
-            submitted = st.form_submit_button("Index Documents", use_container_width=True)
+            submitted = st.form_submit_button("Index Documents", width="stretch")
 
         if submitted and uploaded_files:
             if not up_company.strip():
@@ -250,7 +255,7 @@ def _render_sidebar() -> None:
 
         st.markdown("---")
         st.markdown("### 🗑️ Session Control")
-        if st.button("🗑️ Clear Session Data", use_container_width=True, type="secondary"):
+        if st.button("🗑️ Clear Session Data", width="stretch", type="secondary"):
             _clear_session()
         st.markdown("---")
         st.markdown(
@@ -331,7 +336,7 @@ def _handle_uploads(uploaded_files, company: str, reporting_year: str, doc_type:
 def _format_citations(text: str) -> str:
     def _rep(m):
         return f'<span class="source-badge">[S{m.group(1)}]</span>'
-    return re.sub(r"\[SOURCE\s*(\d+)\]", _rep, text, flags=re.IGNORECASE)
+    return re.sub(r"[\[【]SOURCE\s*(\d+)[\]】]", _rep, text, flags=re.IGNORECASE)
 
 
 # ── Chatbot section ─────────────────────────────────────────────────────────
@@ -374,7 +379,7 @@ def _render_chatbot() -> None:
                     unsafe_allow_html=True,
                 )
                 if msg.get("chart_fig") is not None:
-                    st.plotly_chart(msg["chart_fig"], use_container_width=True, key=f"chart_{id(msg)}")
+                    st.plotly_chart(msg["chart_fig"], width="stretch", key=f"chart_{id(msg)}")
                     if msg.get("chart_citations"):
                         st.markdown(
                             '<div class="metric-row">' +
@@ -624,7 +629,7 @@ def _render_dashboard() -> None:
             
             fig, citations, refusal = build_chart(selected_metrics)
             if fig is not None:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
                 if citations:
                     st.markdown(
                         '<div class="metric-row">' +
@@ -663,7 +668,7 @@ def _render_dashboard() -> None:
         }
         for m in filtered_registry
     ]
-    st.dataframe(table_data, use_container_width=True)
+    st.dataframe(table_data, width="stretch")
 
 
 # ── How to Use section ───────────────────────────────────────────────────────

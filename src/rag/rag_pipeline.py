@@ -19,12 +19,13 @@ You are a precise ESG / BRSR Report Analyst.
 
 RULES:
 1. Use ONLY the provided sources.
-2. Every factual statement must include [SOURCE N].
-3. Do NOT use outside knowledge or invent ESG figures.
-4. Preserve exact reported units and reporting periods — do not convert or round silently.
-5. If a value is not directly stated but calculated from source data, say so explicitly
+2. Every factual statement must include standard citations in the format [SOURCE N] (e.g., [SOURCE 1]).
+3. NEVER use unicode or full-width brackets like 【SOURCE 1】 or (SOURCE 1) — use ASCII square brackets [SOURCE N] strictly.
+4. Do NOT use outside knowledge or invent ESG figures.
+5. Preserve exact reported units and reporting periods — do not convert or round silently.
+6. If a value is not directly stated but calculated from source data, say so explicitly
    and show which sources it was derived from.
-6. If insufficient context exists, respond exactly:
+7. If insufficient context exists, respond exactly:
    UNANSWERABLE: insufficient information in sources
 """
 
@@ -76,18 +77,17 @@ class RAGPipeline:
 
     def _call_llm(self, messages, api_key):
         from openai import OpenAI
-        # max_retries: openai-python retries 429/5xx with exponential
-        # backoff automatically — cheap insurance against Groq's free/dev
-        # tier RPM caps. extra_body reasoning_format="hidden": Groq's
-        # gpt-oss models are reasoning models; this strips reasoning
-        # content server-side so it never shows up mixed into the answer
-        # text (and, for any multi-turn caller, is never replayed back
-        # into the next request's history).
-        client = OpenAI(api_key=api_key, base_url=cfg.llm.base_url, timeout=cfg.llm.timeout,
-                         max_retries=cfg.llm.max_retries)
+        client = OpenAI(
+            api_key=api_key,
+            base_url=cfg.llm.base_url,
+            timeout=cfg.llm.timeout,
+            max_retries=cfg.llm.max_retries,
+        )
         resp = client.chat.completions.create(
-            model=cfg.llm.model_name, messages=messages,
-            temperature=cfg.llm.temperature, max_tokens=cfg.llm.max_tokens,
+            model=cfg.llm.model_name,
+            messages=messages,
+            temperature=cfg.llm.temperature,
+            max_tokens=cfg.llm.max_tokens,
             extra_body={"reasoning_format": "hidden"},
         )
         return resp.choices[0].message.content.strip()
@@ -101,8 +101,9 @@ class RAGPipeline:
             for i, c in enumerate(chunks)
         )
 
-    def _extract_citations(self, text: str):
-        return sorted(set(int(x) for x in re.findall(r"\[SOURCE\s*(\d+)\]", text)))
+    def _extract_citations(self, text: str) -> list[int]:
+        """Extracts numerical source indices from both standard [SOURCE N] and unicode 【SOURCE N】 citations."""
+        return sorted(set(int(x) for x in re.findall(r"[\[【]SOURCE\s*(\d+)[\]】]", text, flags=re.IGNORECASE)))
 
     def run(
         self, question: str, api_key: str,
@@ -123,9 +124,12 @@ class RAGPipeline:
 
         context = self._build_context(chunks)
         prompt = USER_PROMPT_TEMPLATE.format(context=context, question=question)
-        answer = self._call_llm(
+        raw_answer = self._call_llm(
             [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}], api_key,
         )
+
+        # Normalize any unicode brackets in the raw answer to standard ASCII brackets
+        answer = re.sub(r"【\s*SOURCE\s*(\d+)\s*】", r"[SOURCE \1]", raw_answer, flags=re.IGNORECASE)
         citations = self._extract_citations(answer)
 
         ragas = self._ragas_guard.evaluate(question, answer, chunks, api_key) if self._ragas_guard else None
@@ -134,7 +138,7 @@ class RAGPipeline:
             return self._fail(question, answer, "gate_llm_unanswerable", t0, chunks)
 
         if len(citations) == 0:
-            log.warning("No citations found but keeping answer for RAGAS review")
+            log.warning("No citations found in generated answer text")
 
         chart_metrics, chart_refusal = [], ""
         if wants_chart(question) and self._metric_registry:

@@ -1,38 +1,69 @@
+---
+title: ESG-BRSR Intelligence Assistant
+emoji: 🌱
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: 1.65.0
+app_file: app.py
+pinned: false
+short_description: Citation-grounded RAG & Compliance Sentinel for BRSR Reports
+---
+
 # ESG / BRSR Report Intelligence Platform
 
 Live Demo: https://ntini97-esg-brsr-intelligence.hf.space/
 
 ## Project layout
 
-```
-app.py                                    Streamlit entrypoint — 2 sections
-agent/compliance_sentinel.py              The ESG/BRSR Compliance Sentinel agent
-agent/history_store.py                    memory for the Compliance Sentinel agent
-agent/model_provider.py                   Builds the Strands `Model` the Compliance Sentinel agent runs on
-agent/tools.py                            The Compliance Sentinel agent's tools
-config/settings.py                        All config, incl. GROQ_API_KEY from env
-src/preprocessing/preprocessor.py         PDF structure extraction + markdown-aware chunking
-src/embedding/embedder.py                 SentenceTransformer + ephemeral ChromaDB
-src/embedding/indexer.py                  Load → chunk → stamp metadata → embed → store
-src/retrieval/retriever.py                Two-stage retrieval + metadata filters
-src/evaluation/ragas_guard.py             Faithfulness / answer / context relevancy gates
-src/rag/rag_pipeline.py                   Prompting, citations, chart-intent hook
-src/metrics/schema.py                     ESGMetric structured record
-src/metrics/normalizer.py                 Synonym matching + unit compatibility
-src/metrics/extractor.py                  Table chunk → ESGMetric records
-src/visualization/chart_generator.py      Question → Plotly chart (or refusal)
-src/visualization/dashboard.py            Principle/company/year dashboard builder
-src/summarization/summarizer.py           Structured, cited ESG summary generation
-.env.example
+```text
+├── agent/
+│   ├── compliance_sentinel.py     # Main agent execution workflow
+│   ├── history_store.py           # Thread-safe in-memory/disk session history
+│   ├── model_provider.py          # Strands Model builder configuration
+│   └── tools.py                  # Sentinel agent tool definitions
+├── config/
+│   └── settings.py               # Central dataclass configuration & env vars
+├── src/
+│   ├── embedding/
+│   │   ├── embedder.py           # Local SentenceTransformer & ChromaDB EphemeralClient
+│   │   └── indexer.py            # Document loading, chunking, and embedding pipeline
+│   ├── evaluation/
+│   │   └── ragas_guard.py        # Faithfulness, context, and answer relevancy metrics
+│   ├── metrics/
+│   │   ├── extractor.py          # Deterministic key-value table metric parser
+│   │   ├── normalizer.py         # Metric name canonicalization & unit compatibility
+│   │   └── schema.py             # Structured ESGMetric dataclass
+│   ├── preprocessing/
+│   │   └── preprocessor.py       # Docling layout-aware PDF parser
+│   ├── rag/
+│   │   └── rag_pipeline.py       # RAG pipeline with citation normalization
+│   ├── retrieval/
+│   │   └── retriever.py          # BM25 + Cross-Encoder hybrid retriever
+│   └── visualization/
+│       ├── chart_generator.py    # Intent detection & Plotly chart builder
+│       └── dashboard.py          # Streamlit analytics dashboard renderer
+├── app.py                        # Streamlit web application entrypoint
+├── requirements.txt              # Production dependencies
+└── README.md
 ```
 
 ## Running locally
 
-### CLI
+### Local Setup
+
+Copy .env.example to .env and provide your Groq API key:
 
 ```bash
 cp .env.example .env   # then fill in GROQ_API_KEY
 pip install -r requirements.txt
+```
+
+### CLI
+
+To run the Compliance Sentinel directly from the terminal:
+
+```bash
 python -m agent.compliance_sentinel --file report.pdf --company "ABCD Corp" --year FY2024-25
 ```
 

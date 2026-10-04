@@ -1,30 +1,43 @@
+# Environment & Credentials
+.env
+.env.*
+.streamlit/secrets.toml
+*.key
+*.pem
+
 # Python & Virtual Environments
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 venv/
 env/
 .venv/
 
-# Streamlit & Local App Caches
-.streamlit/secrets.toml
-.cache/
-
-# Local Vector Databases & Storage (Do not upload local binary DB files)
+# Application Memory & Local Databases
+data/
+memos/
 chroma_db/
 faiss_index/
 *.sqlite3
 *.db
+/tmp/
+/tmp/hf_cache/
+.cache/
+.huggingface/
 
-# OS / Environment Files
-.env
-.DS_Store
-
-.env
-data/
-sample/
+# Notebooks & Submission Drafts (Local only)
+*.ipynb
 PROJECT_GUIDE.md
 SUBMISSION.md
-.vscode/
 Submission.md
-*.ipynb
+
+# Large Sample PDFs (Ignore PDF files, but keep the sample directory)
+sample/*.pdf
+!sample/.gitkeep
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

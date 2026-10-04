@@ -32,7 +32,8 @@ class RAGASResult:
 
 
 # ---------------- LLM CALL ----------------
-def _groq_json(prompt, api_key, system=""):
+def _groq_json(prompt: str, api_key: str, system: str = "") -> Optional[dict | list]:
+    """Issues LLM call and robustly extracts JSON array or object from response."""
     try:
         from openai import OpenAI
 
@@ -56,7 +57,17 @@ def _groq_json(prompt, api_key, system=""):
         )
 
         text = resp.choices[0].message.content.strip()
-        text = re.sub(r"```.*?```", "", text, flags=re.S)
+
+        # Extract content between markdown code fences if present
+        if "```" in text:
+            match_fence = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL)
+            if match_fence:
+                text = match_fence.group(1).strip()
+
+        # Extract the primary JSON array [] or object {} substring
+        match_json = re.search(r"(\[.*\]|\{.*\})", text, flags=re.DOTALL)
+        if match_json:
+            text = match_json.group(1).strip()
 
         return json.loads(text)
 
@@ -66,11 +77,11 @@ def _groq_json(prompt, api_key, system=""):
 
 
 # ---------------- FAITHFULNESS ----------------
-def _faithfulness(answer, context, api_key):
+def _faithfulness(answer: str, context: list[str], api_key: str) -> tuple[float, int, int]:
     if answer.upper().startswith("UNANSWERABLE"):
         return 0.0, 0, 0
 
-    # 1. sentence split (stable, no LLM)
+    # 1. sentence split
     sentences = re.split(r'(?<=[.!?])\s+', answer.strip())
     sentences = [s.strip() for s in sentences if s.strip()]
 
@@ -79,42 +90,38 @@ def _faithfulness(answer, context, api_key):
 
     # 2. build context bag
     context_text = " ".join(context).lower()
-
     context_tokens = set(context_text.split())
 
     def is_supported(sentence: str) -> bool:
         tokens = set(sentence.lower().split())
-
-        # overlap-based grounding (legal docs work well here)
         overlap = len(tokens & context_tokens)
-
-        return overlap >= 3   # threshold (tune later if needed)
+        return overlap >= 3   # Grounding threshold
 
     supported = sum(is_supported(s) for s in sentences)
-
     score = supported / len(sentences)
 
     return round(score, 3), len(sentences), supported
 
 
 # ---------------- ANSWER RELEVANCY ----------------
-def _answer_relevancy(question, answer, embedder, api_key):
+def _answer_relevancy(question: str, answer: str, embedder, api_key: str) -> tuple[float, list[str]]:
     if answer.upper().startswith("UNANSWERABLE"):
-        return 0.0, []   # FIXED
+        return 0.0, []
 
-    prompt = f"""
-Generate 3 questions this answer solves.
+    system_prompt = "You are an evaluation assistant. Output ONLY a valid JSON array of 3 strings."
+    user_prompt = f"""Generate 3 distinct questions that this answer directly answers.
 
 Answer:
 {answer}
-"""
 
-    raw = _groq_json(prompt, api_key)
+Respond ONLY with a JSON list of 3 strings, e.g.: ["Question 1?", "Question 2?", "Question 3?"]"""
 
-    if not isinstance(raw, list):
+    raw = _groq_json(user_prompt, api_key, system=system_prompt)
+
+    if not isinstance(raw, list) or not raw:
         return 0.5, []
 
-    gen_qs = raw[:3]
+    gen_qs = [str(q) for q in raw[:3]]
 
     try:
         from src.utils.cosine import cosine_similarity
@@ -125,16 +132,17 @@ Answer:
         sims = [cosine_similarity(q_vec, v) for v in gen_vecs]
         return round(sum(sims) / len(sims), 3), gen_qs
 
-    except Exception:
+    except Exception as exc:
+        log.warning("Cosine similarity calculation failed in RAGAS: %s", exc)
         return 0.5, gen_qs
 
 
 # ---------------- CONTEXT RELEVANCY ----------------
-def _context_relevancy(scores):
+def _context_relevancy(scores: list[float]) -> float:
     if not scores:
         return 0.0
 
-    # FIXED normalization
+    # Sigmoid normalization for cross-encoder rerank scores if needed
     if max(scores) <= 1.0:
         vals = scores
     else:
@@ -148,10 +156,9 @@ class RAGASGuard:
     def __init__(self, embedder):
         self._embedder = embedder
 
-    def evaluate(self, question, answer, chunks, api_key):
-
+    def evaluate(self, question: str, answer: str, chunks: list, api_key: str) -> RAGASResult:
         ctx = [c.text for c in chunks]
-        rerank = [c.rerank_score for c in chunks]
+        rerank = [getattr(c, "rerank_score", 0.0) for c in chunks]
 
         ctx_rel = _context_relevancy(rerank)
         faith, n, sup = _faithfulness(answer, ctx, api_key)

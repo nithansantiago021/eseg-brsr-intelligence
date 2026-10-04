@@ -1,8 +1,18 @@
 """
-embedder.py — Embedding + ephemeral vector store for the ESG platform.
+embedder.py — Embedding + ephemeral vector store for the ESG platform
+with HF_HOME persistent local caching.
 """
 
 from __future__ import annotations
+
+import os
+from pathlib import Path
+
+# Set persistent local cache directory BEFORE importing sentence_transformers
+CACHE_DIR = "/tmp/hf_cache"
+os.environ["HF_HOME"] = CACHE_DIR
+os.environ["TRANSFORMERS_CACHE"] = CACHE_DIR
+Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
 import time
 import uuid
@@ -20,11 +30,15 @@ log = get_logger(__name__)
 
 class Embedder:
     def __init__(self) -> None:
-        log.info("Loading embedding model: %s", cfg.embedding.model_name)
+        log.info("Loading embedding model: %s (cache: %s)", cfg.embedding.model_name, CACHE_DIR)
         t0 = time.perf_counter()
-        self._model = SentenceTransformer(cfg.embedding.model_name, device=cfg.embedding.device)
+        self._model = SentenceTransformer(
+            cfg.embedding.model_name, 
+            device=cfg.embedding.device,
+            cache_folder=CACHE_DIR,
+        )
         
-        # Explicitly set max_seq_length to prevent sequence length warnings for large chunks/tables
+        # Explicitly set max_seq_length to 512 to truncate tokens cleanly
         self._model.max_seq_length = 512
         
         log.info("Model loaded in %.2fs", time.perf_counter() - t0)
@@ -52,7 +66,7 @@ class VectorStore:
             metadata={"hnsw:space": cfg.vectorstore.distance_metric},
         )
         log.info("Ephemeral VectorStore created (isolated collection '%s', in-memory only)",
-                  self._collection_name)
+                 self._collection_name)
 
     @property
     def count(self) -> int:
@@ -72,7 +86,7 @@ class VectorStore:
         log.info("Upserted %d chunks (total: %d)", len(chunks), self.count)
 
     def similarity_search(self, query_embedding: list[float], top_k: Optional[int] = None,
-                           where: Optional[dict] = None) -> list[dict]:
+                          where: Optional[dict] = None) -> list[dict]:
         k = top_k or cfg.retrieval.top_k
         if self._collection.count() == 0:
             return []
